@@ -6,18 +6,18 @@ jobs:
   build:
     <<: *defaults
     docker:
-      - image: circleci/node:4.8
+      - image: circleci/node:8-stretch
 
     steps:
       - checkout
 
-      - restore_cache:
-          keys:
-            - node-modules-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "package.json" }}
+      # - restore_cache:
+      #     keys:
+      #       - node-modules-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "package.json" }}
 
-      - restore_cache:
-          keys:
-            - meteor-{{ checksum ".circleci/config.yml" }}-{{ checksum ".meteor/release" }}
+      # - restore_cache:
+      #     keys:
+      #       - meteor-{{ checksum ".circleci/config.yml" }}-{{ checksum ".meteor/release" }}
 
       - run:
           name: Install Meteor
@@ -67,17 +67,17 @@ jobs:
           command: |
             meteor npm run testunit
 
-      - restore_cache:
-          keys:
-            - meteor-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum ".meteor/versions" }}
+      # - restore_cache:
+      #     keys:
+      #       - meteor-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum ".meteor/versions" }}
 
-      - restore_cache:
-          keys:
-            - livechat-meteor-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "packages/rocketchat-livechat/app/.meteor/versions" }}
+      # - restore_cache:
+      #     keys:
+      #       - livechat-meteor-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "packages/rocketchat-livechat/app/.meteor/versions" }}
 
-      - restore_cache:
-          keys:
-            - livechat-node-modules-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "packages/rocketchat-livechat/app/package.json" }}
+      # - restore_cache:
+      #     keys:
+      #       - livechat-node-modules-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "packages/rocketchat-livechat/app/package.json" }}
 
       - run:
           name: Build Rocket.Chat
@@ -134,7 +134,7 @@ jobs:
   test-with-oplog:
     <<: *defaults
     docker:
-      - image: circleci/node:4.8-browsers
+      - image: circleci/node:8-browsers
       - image: mongo:3.4
         command: [mongod, --nojournal, --noprealloc, --smallfiles, --replSet=rs0]
 
@@ -163,10 +163,9 @@ jobs:
             mongo --eval 'rs.initiate({_id:"rs0", members: [{"_id":1, "host":"localhost:27017"}]})'
             mongo --eval 'rs.status()'
 
-      - run:
-          name: Update NPM
-          command: |
-            sudo npm install -g npm
+      # - restore_cache:
+      #     keys:
+      #       - node-modules-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "package.json" }}
 
       - run:
           name: NPM install
@@ -179,12 +178,12 @@ jobs:
             for i in $(seq 1 5); do npm test && s=0 && break || s=$? && sleep 1; done; (exit $s)
 
       - store_artifacts:
-          path: ~/repo/.screenshots
+          path: .screenshots/
 
   test-without-oplog:
     <<: *defaults
     docker:
-      - image: circleci/node:4.8-browsers
+      - image: circleci/node:8-stretch-browsers
       - image: circleci/mongo:3.4
 
     environment:
@@ -197,10 +196,9 @@ jobs:
 
       - checkout
 
-      - run:
-          name: Update NPM
-          command: |
-            sudo npm install -g npm
+      # - restore_cache:
+      #     keys:
+      #       - node-modules-cache-{{ checksum ".circleci/config.yml" }}-{{ checksum "package.json" }}
 
       - run:
           name: NPM install
@@ -218,18 +216,17 @@ jobs:
       #     command: |
       #       cp -R .screenshots /tmp/screenshots
 
-      # - store_artifacts:
-      #     path: ~/repo/.screenshots
+      - store_artifacts:
+          path: .screenshots/
 
   deploy:
     <<: *defaults
     docker:
       - image: circleci/node:4.8
+    # machine:
+    #     enabled: true
 
     steps:
-      - attach_workspace:
-          at: /tmp
-
       - checkout
 
       - run:
@@ -237,32 +234,26 @@ jobs:
           command: |
             if [[ $CIRCLE_PULL_REQUESTS ]]; then exit 0; fi;
 
-            sudo apt-get -y -qq update
-            sudo apt-get -y -qq install python3.4-dev
+            apt-get -y -qq update
+            apt-get -y -qq install python3.4-dev
             curl -O https://bootstrap.pypa.io/get-pip.py
             python3.4 get-pip.py --user
-            export PATH=~/.local/bin:$PATH
             pip install awscli --upgrade --user
 
-      - run:
-          name: Publish assets
-          command: |
-            if [[ $CIRCLE_PULL_REQUESTS ]]; then exit 0; fi;
+      - run: |
+          if [[ $CIRCLE_PULL_REQUESTS ]]; then exit 0; fi;
 
-            export PATH=~/.local/bin:$PATH
-            export CIRCLE_TAG=${CIRCLE_TAG:=}
+          source .circleci/setartname.sh
+          source .circleci/setdeploydir.sh
+          bash .circleci/setupsig.sh
+          bash .circleci/namefiles.sh
+          # echo ".circleci/sandstorm.sh"
 
-            source .circleci/setartname.sh
-            source .circleci/setdeploydir.sh
-            bash .circleci/setupsig.sh
-            bash .circleci/namefiles.sh
-            # echo ".circleci/sandstorm.sh"
+          aws s3 cp $ROCKET_DEPLOY_DIR/ s3://download.rocket.chat/build/ --recursive
 
-            aws s3 cp $ROCKET_DEPLOY_DIR/ s3://download.rocket.chat/build/ --recursive
-
-            bash .circleci/update-releases.sh
-            bash .circleci/docker.sh
-            bash .circleci/snap.sh
+          # bash .circleci/docker.sh
+          # bash .circleci/update-releases.sh
+          # bash .circleci/snap.sh
 
 workflows:
   version: 2
